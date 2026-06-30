@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paradox Chess: Tactical Edition</title>
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --panel-bg: rgba(22, 26, 39, 0.85);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --board-light: #e2e8f0;
+            --board-dark: #4a5568;
+            --accent-glow: #3182ce;
+            --accent-gold: #f6ad55;
+            --text-main: #f7fafc;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0; padding: 10px;
+            display: flex; flex-direction: column; align-items: center;
+            min-height: 100vh;
+        }
+
+        .window-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            backdrop-filter: blur(14px);
+            padding: 20px; border-radius: 16px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            width: 90%; max-width: 450px; text-align: center; box-sizing: border-box;
+            margin-bottom: 15px;
+        }
+
+        .mode-button {
+            display: block; width: 100%; background: #3182ce; color: white;
+            border: none; padding: 14px; margin: 10px 0; font-size: 1rem;
+            font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s;
+        }
+        .mode-button:hover { background: #4299e1; transform: translateY(-1px); }
+
+        #game-screen { display: none; width: 100%; max-width: 1000px; }
+        .game-layout { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; width: 100%; }
+
+        .board {
+            display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+            width: 92vw; height: 92vw; max-width: 450px; max-height: 450px;
+            border: 5px solid #1a202c; border-radius: 8px; overflow: hidden;
+        }
+
+        .square { display: flex; justify-content: center; align-items: center; position: relative; cursor: pointer; }
+        .light { background-color: var(--board-light); }
+        .dark { background-color: var(--board-dark); }
+
+        /* INVERTED UI: W pieces are rendered black, B pieces are rendered white */
+        .token {
+            width: 82%; height: 82%; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 2.2rem; font-weight: bold; box-shadow: 0 4px 8px rgba(0,0,0,0.5); z-index: 2;
+            transition: transform 0.2s;
+        }
+        @media(max-width: 480px) { .token { font-size: 1.6rem; } }
+        
+        /* White logic values -> Styled as Dark Charcoal Obsidian */
+        .token-W { background: radial-gradient(circle, #2d3748 60%, #0f1319 100%); color: #fff; border: 2px solid #4a5568; }
+        /* Black logic values -> Styled as Brilliant Ivory White */
+        .token-B { background: radial-gradient(circle, #fff 70%, #cbd5e0 100%); color: #1a202c; border: 2px solid #fff; }
+
+        .selected .token { transform: scale(1.1) rotate(4deg); box-shadow: 0 0 0 4px var(--accent-gold); }
+        .highlighted::after { content: ''; width: 14px; height: 14px; background: var(--accent-gold); border-radius: 50%; position: absolute; z-index: 5; }
+
+        .frozen::after { content: '❄️'; position: absolute; bottom: 2px; right: 2px; font-size: 1.2rem; z-index: 10; }
+        .shielded { box-shadow: 0 0 0 4px var(--accent-glow) !important; }
+        .camo { opacity: 0.35; box-shadow: 0 0 0 4px #48bb78 !important; }
+        .mined::before { content: '💣'; position: absolute; top: 2px; left: 2px; font-size: 1rem; z-index: 10; }
+
+        .hand-container { width: 100%; min-width: 290px; max-width: 450px; display: flex; flex-direction: column; gap: 10px; }
+        .cards-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+        .card {
+            background: linear-gradient(135deg, #1e2230 0%, #11131a 100%);
+            border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+            padding: 10px; width: calc(50% - 4px); box-sizing: border-box; cursor: pointer; text-align: left;
+        }
+        .card:hover { border-color: var(--accent-gold); }
+        .card-title { font-weight: bold; font-size: 0.85rem; color: var(--accent-gold); }
+        .card-desc { font-size: 0.72rem; color: #a0aec0; margin-top: 2px; line-height: 1.2; }
+    </style>
+</head>
+<body>
+
+    <!-- Main Navigation/Mode Setup Menu -->
+    <div id="lobby-screen" class="window-panel">
+        <h2 style="color: var(--accent-gold); margin-bottom:4px; letter-spacing: 1px;">PARADOX CHESS</h2>
+        <p style="color: #718096; font-size: 0.85rem; margin-top:0; margin-bottom: 25px;">Visual Palette Swap Enabled</p>
+        
+        <button class="mode-button" onclick="launchGameMode('pvc')">⚔️ Player vs AI Combat</button>
+        <button class="mode-button" style="background:#2f855a;" onclick="launchGameMode('local')">📱 Local Pass & Play</button>
+    </div>
+
+    <!-- Main Live Strategy Board Screen -->
+    <div id="game-screen">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; font-weight:bold; width:100%;" class="window-panel">
+            <div id="role-text" style="color: var(--accent-gold);">Mode: Local Arena</div>
+            <div id="turn-text">Initializing State Engine...</div>
+        </div>
+
+        <div class="game-layout">
+            <div class="board" id="board"></div>
+            <div class="hand-container">
+                <div class="window-panel" style="width:100%;">
+                    <h4 id="hand-label-title" style="margin:0 0 8px 0; font-size:0.8rem; text-align:left; color:#718096;">AVAILABLE STRATAGEMS</h4>
+                    <div class="cards-grid" id="my-hand"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const glyphs = { 'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚' };
+        const DECK_POOL = [
+            { id: 1, name: "Stasis Freeze", desc: "Freeze any piece on the board for 1 turn sequence." },
+            { id: 2, name: "Demote Variant", desc: "Degrade an enemy piece (Queen → Rook → Knight)." },
+            { id: 3, name: "Drop-Pod Pawn", desc: "Spawn a new friendly Pawn asset on your baseline row." },
+            { id: 7, name: "Quantum Knight", desc: "Instantly evolve one of your Pawns into a strike Knight." },
+            { id: 8, name: "Kinetic Aegis", desc: "Apply a shield. If captured, the attacking piece dies." },
+            { id: 9, name: "Phase Camo", desc: "Target ally cannot be captured for one full round." },
+            { id: 11, name: "Proximity Mine", desc: "Plant a hidden trap on an empty tile that detonates on entry." },
+            { id: 12, name: "Alchemist Matrix", desc: "Mutate an active friendly Pawn into a tactical Bishop." }
+        ];
+
+        let matchMode = 'local'; 
+        let activePlayer = 'W'; 
+        let game = {
+            board: [
+                'BR', 'BN', 'BB', 'BQ', 'BK', 'BB', 'BN', 'BR', 'BP', 'BP', 'BP', 'BP', 'BP', 'BP', 'BP', 'BP',
+                '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                'WP', 'WP', 'WP', 'WP', 'WP', 'WP', 'WP', 'WP', 'WR', 'WN', 'WB', 'WQ', 'WK', 'WB', 'WN', 'WR'
+            ],
+            turn: 'W', moveCount: 1, gameOver: false,
+            hands: { W: [], B: [] }, frozen: { W: null, B: null },
+            shields: Array(64).fill(false), camos: Array(64).fill(false), mines: Array(64).fill(false)
+        };
+
+        let selectedSquare = null; let validMoves = []; let activeCardEffect = null;
+
+        function getRandomCard() { return DECK_POOL[Math.floor(Math.random() * DECK_POOL.length)]; }
+
+        function launchGameMode(mode) {
+            matchMode = mode;
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            
+            document.getElementById('role-text').innerText = mode === 'pvc' ? "Vs Core Computer AI" : "Local Shared Arena";
+            
+            // Deal opening tactical card packages
+            game.hands.W = [getRandomCard(), getRandomCard()];
+            game.hands.B = [getRandomCard(), getRandomCard()];
+            
+            syncEngine();
+        }
+
+        function syncEngine() {
+            renderBoard();
+            renderHands();
+            
+            let descriptiveLabel = game.turn === 'W' ? "White Player (Black Pieces)" : "Black Player (White Pieces)";
+            if (matchMode === 'pvc' && game.turn === 'B') descriptiveLabel = "Computer Processing Matrix...";
+            
+            document.getElementById('turn-text').innerText = game.gameOver ? "Match Terminated!" : `${descriptiveLabel} [M${game.moveCount}]`;
+            
+            // Check if it's the AI's turn to compute an execution branch
+            if (matchMode === 'pvc' && game.turn === 'B' && !game.gameOver) {
+                setTimeout(runComputerAI, 700);
+            }
+        }
+
+        function renderBoard() {
+            const boardEl = document.getElementById('board'); boardEl.innerHTML = '';
+            for (let i = 0; i < 64; i++) {
+                const square = document.createElement('div');
+                const row = Math.floor(i / 8); const col = i % 8;
+                square.className = `square ${(row + col) % 2 === 0 ? 'light' : 'dark'}`;
+                
+                if (selectedSquare === i) square.classList.add('selected');
+                if (validMoves.includes(i)) square.classList.add('highlighted');
+                if (game.frozen.W === i || game.frozen.B === i) square.classList.add('frozen');
+
+                const piece = game.board[i];
+                if (piece) {
+                    const token = document.createElement('div');
+                    token.className = `token token-${piece[0]}`;
+                    if (game.shields[i]) token.classList.add('shielded');
+                    if (game.camos[i]) token.classList.add('camo');
+                    token.innerText = glyphs[piece[1]] || '';
+                    square.appendChild(token);
+                }
+
+                if (game.mines[i] && matchMode === 'local') square.classList.add('mined');
+                
+                square.addEventListener('click', () => handleSquareClick(i));
+                boardEl.appendChild(square);
+            }
+        }
+
+        function renderHands() {
+            const container = document.getElementById('my-hand');
+            container.innerHTML = '';
+            
+            document.getElementById('hand-label-title').innerText = `TACTICAL HAND (${game.turn === 'W' ? 'WHITE' : 'BLACK'})`;
+            
+            game.hands[game.turn].forEach((card, idx) => {
+                const el = document.createElement('div'); el.className = 'card';
+                el.innerHTML = `<div class="card-title">${card.name}</div><div class="card-desc">${card.desc}</div>`;
+                el.addEventListener('click', () => useCardAsset(idx));
+                container.appendChild(el);
+            });
+        }
+
+        function handleSquareClick(idx) {
+            if (game.gameOver) return;
+            if (matchMode === 'pvc' && game.turn === 'B') return; // Restrict user inputs during AI steps
+
+            if (activeCardEffect) { handleCardTargeting(idx); return; }
+
+            const piece = game.board[idx];
+            if (piece && piece[0] === game.turn && (game.frozen.W === idx || game.frozen.B === idx)) return;
+
+            if (selectedSquare === null) {
+                if (piece && piece[0] === game.turn) {
+                    selectedSquare = idx; validMoves = generateValidMoves(idx, game.board); renderBoard();
+                }
+            } else {
+                if (validMoves.includes(idx)) { executeMove(selectedSquare, idx); }
+                else if (piece && piece[0] === game.turn) {
+                    selectedSquare = idx; validMoves = generateValidMoves(idx, game.board); renderBoard();
+                } else { selectedSquare = null; validMoves = []; renderBoard(); }
+            }
+        }
+
+        function executeMove(from, to) {
+            const piece = game.board[from]; const target = game.board[to];
+            
+            if (target && game.camos[to] && target[0] !== piece[0]) return;
+            if (target && game.shields[to] && target[0] !== piece[0]) {
+                game.shields[to] = false; game.board[from] = '';
+                selectedSquare = null; validMoves = []; syncEngine(); return;
+            }
+            if (target && target[1] === 'K') {
+                game.board[to] = piece; game.board[from] = ''; game.gameOver = true;
+                syncEngine(); alert(`Checkmate Core! Victory to side: ${piece[0]}`); return;
+            }
+
+            game.shields[to] = game.shields[from]; game.shields[from] = false;
+            game.camos[to] = game.camos[from]; game.camos[from] = false;
+            game.board[to] = piece; game.board[from] = '';
+
+            if (game.mines[to]) { game.board[to] = ''; game.mines[to] = false; }
+            if (piece === 'WP' && Math.floor(to / 8) === 0) game.board[to] = 'WQ';
+            if (piece === 'BP' && Math.floor(to / 8) === 7) game.board[to] = 'BQ';
+
+            game.frozen[game.turn] = null; selectedSquare = null; validMoves = [];
+            game.turn = game.turn === 'W' ? 'B' : 'W'; game.moveCount++;
+            
+            // Deal continuous card assets automatically every 4 complete operations
+            if (game.moveCount % 4 === 0) {
+                game.hands.W.push(getRandomCard());
+                game.hands.B.push(getRandomCard());
+            }
+
+            syncEngine();
+        }
+
+        function useCardAsset(idx) {
+            if (game.gameOver) return;
+            if (matchMode === 'pvc' && game.turn === 'B') return;
+            activeCardEffect = { idx, card: game.hands[game.turn][idx] };
+            document.getElementById('role-text').innerText = `Targeting: ${activeCardEffect.card.name}`;
+        }
+
+        function handleCardTargeting(idx) {
+            const cardId = activeCardEffect.card.id; const enemy = game.turn === 'W' ? 'B' : 'W';
+            const piece = game.board[idx]; let validPlay = false;
+
+            if (cardId === 1 && piece && piece[0] === enemy && piece[1] !== 'K') { game.frozen[enemy] = idx; validPlay = true; }
+            else if (cardId === 2 && piece && piece[0] === enemy) {
+                if (piece[1] === 'Q') { game.board[idx] = enemy + 'R'; validPlay = true; }
+                else if (piece[1] === 'R') { game.board[idx] = enemy + 'N'; validPlay = true; }
+            }
+            else if (cardId === 3 && !piece && Math.floor(idx / 8) === (game.turn === 'W' ? 7 : 0)) { game.board[idx] = game.turn + 'P'; validPlay = true; }
+            else if (cardId === 7 && piece && piece[0] === game.turn && piece[1] === 'P') { game.board[idx] = game.turn + 'N'; validPlay = true; }
+            else if (cardId === 8 && piece && piece[0] === game.turn) { game.shields[idx] = true; validPlay = true; }
+            else if (cardId === 9 && piece && piece[0] === game.turn) { game.camos[idx] = true; validPlay = true; }
+            else if (cardId === 11 && !piece) { game.mines[idx] = true; validPlay = true; }
+            else if (cardId === 12 && piece && piece[0] === game.turn && piece[1] === 'P') { game.board[idx] = game.turn + 'B'; validPlay = true; }
+
+            if (validPlay) {
+                game.hands[game.turn].splice(activeCardEffect.idx, 1);
+                document.getElementById('role-text').innerText = matchMode === 'pvc' ? "Vs Core Computer AI" : "Local Shared Arena";
+                activeCardEffect = null; syncEngine();
+            }
+        }
+
+        // --- Core Computer AI Processing Subroutines ---
+        function runComputerAI() {
+            // 1. Check if the AI can use a powerful offensive card asset first
+            if (game.hands.B.length > 0 && Math.random() > 0.4) {
+                const cardIndex = 0;
+                const card = game.hands.B[cardIndex];
+                
+                // Find a logical target square to dump card effect
+                for (let i = 0; i < 64; i++) {
+                    if (card.id === 1 && game.board[i] && game.board[i][0] === 'W' && game.board[i][1] !== 'K') {
+                        game.frozen.W = i;
+                        game.hands.B.splice(cardIndex, 1);
+                        syncEngine(); return;
+                    }
+                    if (card.id === 8 && game.board[i] && game.board[i][0] === 'B') {
+                        game.shields[i] = true;
+                        game.hands.B.splice(cardIndex, 1);
+                        syncEngine(); return;
+                    }
+                }
+            }
+
+            // 2. Generate and evaluate physical piece routing possibilities
+            let legalMovesPool = [];
+            for (let i = 0; i < 64; i++) {
+                if (game.board[i] && game.board[i][0] === 'B' && game.frozen.B !== i) {
+                    let targets = generateValidMoves(i, game.board);
+                    targets.forEach(t => legalMovesPool.push({ from: i, to: t, weight: evaluateMoveValue(i, t) }));
+                }
+            }
+
+            if (legalMovesPool.length === 0) {
+                // If completely jammed, switch turn loops to avoid hard crashes
+                game.turn = 'W'; syncEngine(); return;
+            }
+
+            // Sort by highest offensive outcome weight and execute
+            legalMovesPool.sort((a, b) => b.weight - a.weight);
+            const selection = legalMovesPool[0];
+            executeMove(selection.from, selection.to);
+        }
+
+        function evaluateMoveValue(from, to) {
+            let score = Math.floor(Math.random() * 5); // Add baseline chaotic shuffling
+            const targetPiece = game.board[to];
+            
+            if (targetPiece && targetPiece[0] === 'W') {
+                if (targetPiece[1] === 'K') score += 1000;
+                if (targetPiece[1] === 'Q') score += 50;
+                if (targetPiece[1] === 'R') score += 30;
+                if (targetPiece[1] === 'N' || targetPiece[1] === 'B') score += 20;
+                if (targetPiece[1] === 'P') score += 10;
+            }
+            return score;
+        }
+
+        function generateValidMoves(idx, state) {
+            const piece = state[idx]; if (!piece) return [];
+            const color = piece[0]; const type = piece[1]; const moves = [];
+            const row = Math.floor(idx / 8); const col = idx % 8;
+            const check = (r, c) => {
+                if (r < 0 || r >= 8 || c < 0 || c >= 8) return false; const t = r * 8 + c;
+                if (!state[t]) { moves.push(t); return true; } if (state[t][0] !== color && !game.camos[t]) { moves.push(t); return false; } return false;
+            };
+            if (type === 'P') {
+                const d = color === 'W' ? -1 : 1;
+                if (row+d >= 0 && row+d < 8 && !state[(row+d)*8+col]) { moves.push((row+d)*8+col); if (row === (color === 'W' ? 6 : 1) && !state[(row+d*2)*8+col]) moves.push((row+d*2)*8+col); }
+                [-1, 1].forEach(dc => { if (col+dc >= 0 && col+dc < 8 && state[(row+d)*8+col+dc] && state[(row+d)*8+col+dc][0] !== color && !game.camos[(row+d)*8+col+dc]) moves.push((row+d)*8+col+dc); });
+            } else if (type === 'N') {
+                [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr, dc]) => check(row + dr, col + dc));
+            } else if (type === 'B' || type === 'Q') {
+                [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([dr, dc]) => { let r=row+dr, c=col+dc; while(r>=0&&r<8&&c>=0&&c<8) { if(!check(r,c)) break; r+=dr; c+=dc; } });
+            }
+            if (type === 'R' || type === 'Q') {
+                [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr, dc]) => { let r=row+dr, c=col+dc; while(r>=0&&r<8&&c>=0&&c<8) { if(!check(r,c)) break; r+=dr; c+=dc; } });
+            } else if (type === 'K') {
+                for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) if (dr!==0||dc!==0) check(row+dr, col+dc);
+            }
+            return moves;
+        }
+    </script>
+</body>
+</html>
